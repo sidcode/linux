@@ -61,7 +61,7 @@ int seq_buf_vprintf(struct seq_buf *s, const char *fmt, va_list args)
 
 	if (s->len < s->size) {
 		len = vsnprintf(s->buffer + s->len, s->size - s->len, fmt, args);
-		if (seq_buf_can_fit(s, len)) {
+		if (s->len + len < s->size) {
 			s->len += len;
 			return 0;
 		}
@@ -118,7 +118,7 @@ int seq_buf_bprintf(struct seq_buf *s, const char *fmt, const u32 *binary)
 
 	if (s->len < s->size) {
 		ret = bstr_printf(s->buffer + s->len, len, fmt, binary);
-		if (seq_buf_can_fit(s, ret)) {
+		if (s->len + ret < s->size) {
 			s->len += ret;
 			return 0;
 		}
@@ -306,10 +306,12 @@ int seq_buf_to_user(struct seq_buf *s, char __user *ubuf, int cnt)
 	if (!cnt)
 		return 0;
 
-	if (s->len <= s->readpos)
+	len = seq_buf_used(s);
+
+	if (len <= s->readpos)
 		return -EBUSY;
 
-	len = seq_buf_used(s) - s->readpos;
+	len -= s->readpos;
 	if (cnt > len)
 		cnt = len;
 	ret = copy_to_user(ubuf, s->buffer + s->readpos, cnt);

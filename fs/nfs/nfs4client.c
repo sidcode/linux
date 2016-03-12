@@ -4,7 +4,6 @@
  */
 #include <linux/module.h>
 #include <linux/nfs_fs.h>
-#include <linux/nfs_idmap.h>
 #include <linux/nfs_mount.h>
 #include <linux/sunrpc/addr.h>
 #include <linux/sunrpc/auth.h>
@@ -15,6 +14,7 @@
 #include "callback.h"
 #include "delegation.h"
 #include "nfs4session.h"
+#include "nfs4idmap.h"
 #include "pnfs.h"
 #include "netns.h"
 
@@ -33,7 +33,7 @@ static int nfs_get_cb_ident_idr(struct nfs_client *clp, int minorversion)
 		return ret;
 	idr_preload(GFP_KERNEL);
 	spin_lock(&nn->nfs_client_lock);
-	ret = idr_alloc(&nn->cb_ident_idr, clp, 0, 0, GFP_NOWAIT);
+	ret = idr_alloc(&nn->cb_ident_idr, clp, 1, 0, GFP_NOWAIT);
 	if (ret >= 0)
 		clp->cl_cb_ident = ret;
 	spin_unlock(&nn->nfs_client_lock);
@@ -621,6 +621,9 @@ int nfs41_walk_client_list(struct nfs_client *new,
 	spin_lock(&nn->nfs_client_lock);
 	list_for_each_entry(pos, &nn->nfs_client_list, cl_share_link) {
 
+		if (pos == new)
+			goto found;
+
 		if (pos->rpc_ops != new->rpc_ops)
 			continue;
 
@@ -639,10 +642,6 @@ int nfs41_walk_client_list(struct nfs_client *new,
 			prev = pos;
 
 			status = nfs_wait_client_init_complete(pos);
-			if (pos->cl_cons_state == NFS_CS_SESSION_INITING) {
-				nfs4_schedule_lease_recovery(pos);
-				status = nfs4_wait_clnt_recover(pos);
-			}
 			spin_lock(&nn->nfs_client_lock);
 			if (status < 0)
 				break;
@@ -668,7 +667,7 @@ int nfs41_walk_client_list(struct nfs_client *new,
 		 */
 		if (!nfs4_match_client_owner_id(pos, new))
 			continue;
-
+found:
 		atomic_inc(&pos->cl_count);
 		*result = pos;
 		status = 0;
@@ -677,7 +676,6 @@ int nfs41_walk_client_list(struct nfs_client *new,
 		break;
 	}
 
-	/* No matching nfs_client found. */
 	spin_unlock(&nn->nfs_client_lock);
 	dprintk("NFS: <-- %s status = %d\n", __func__, status);
 	nfs_put_client(prev);
@@ -731,10 +729,7 @@ static bool nfs4_cb_match_client(const struct sockaddr *addr,
 		return false;
 
 	/* Match only the IP address, not the port number */
-	if (!nfs_sockaddr_match_ipaddr(addr, clap))
-		return false;
-
-	return true;
+	return rpc_cmp_addr(addr, clap);
 }
 
 /*
@@ -1131,7 +1126,7 @@ error:
  */
 static int nfs_probe_destination(struct nfs_server *server)
 {
-	struct inode *inode = server->super->s_root->d_inode;
+	struct inode *inode = d_inode(server->super->s_root);
 	struct nfs_fattr *fattr;
 	int error;
 

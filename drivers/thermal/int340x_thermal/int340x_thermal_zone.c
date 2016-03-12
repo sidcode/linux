@@ -20,7 +20,7 @@
 #include "int340x_thermal_zone.h"
 
 static int int340x_thermal_get_zone_temp(struct thermal_zone_device *zone,
-					 unsigned long *temp)
+					 int *temp)
 {
 	struct int34x_thermal_zone *d = zone->devdata;
 	unsigned long long tmp;
@@ -49,7 +49,7 @@ static int int340x_thermal_get_zone_temp(struct thermal_zone_device *zone,
 }
 
 static int int340x_thermal_get_trip_temp(struct thermal_zone_device *zone,
-					 int trip, unsigned long *temp)
+					 int trip, int *temp)
 {
 	struct int34x_thermal_zone *d = zone->devdata;
 	int i;
@@ -114,7 +114,7 @@ static int int340x_thermal_get_trip_type(struct thermal_zone_device *zone,
 }
 
 static int int340x_thermal_set_trip_temp(struct thermal_zone_device *zone,
-				      int trip, unsigned long temp)
+				      int trip, int temp)
 {
 	struct int34x_thermal_zone *d = zone->devdata;
 	acpi_status status;
@@ -136,7 +136,7 @@ static int int340x_thermal_set_trip_temp(struct thermal_zone_device *zone,
 
 
 static int int340x_thermal_get_trip_hyst(struct thermal_zone_device *zone,
-		int trip, unsigned long *temp)
+		int trip, int *temp)
 {
 	struct int34x_thermal_zone *d = zone->devdata;
 	acpi_status status;
@@ -163,7 +163,7 @@ static struct thermal_zone_device_ops int340x_thermal_zone_ops = {
 };
 
 static int int340x_thermal_get_trip_config(acpi_handle handle, char *name,
-				      unsigned long *temp)
+				      int *temp)
 {
 	unsigned long long r;
 	acpi_status status;
@@ -208,7 +208,7 @@ struct int34x_thermal_zone *int340x_thermal_zone_add(struct acpi_device *adev,
 				trip_cnt, GFP_KERNEL);
 		if (!int34x_thermal_zone->aux_trips) {
 			ret = -ENOMEM;
-			goto free_mem;
+			goto err_trip_alloc;
 		}
 		trip_mask = BIT(trip_cnt) - 1;
 		int34x_thermal_zone->aux_trip_nr = trip_cnt;
@@ -248,14 +248,15 @@ struct int34x_thermal_zone *int340x_thermal_zone_add(struct acpi_device *adev,
 						0, 0);
 	if (IS_ERR(int34x_thermal_zone->zone)) {
 		ret = PTR_ERR(int34x_thermal_zone->zone);
-		goto free_lpat;
+		goto err_thermal_zone;
 	}
 
 	return int34x_thermal_zone;
 
-free_lpat:
+err_thermal_zone:
 	acpi_lpat_free_conversion_table(int34x_thermal_zone->lpat_table);
-free_mem:
+	kfree(int34x_thermal_zone->aux_trips);
+err_trip_alloc:
 	kfree(int34x_thermal_zone);
 	return ERR_PTR(ret);
 }
@@ -266,6 +267,7 @@ void int340x_thermal_zone_remove(struct int34x_thermal_zone
 {
 	thermal_zone_device_unregister(int34x_thermal_zone->zone);
 	acpi_lpat_free_conversion_table(int34x_thermal_zone->lpat_table);
+	kfree(int34x_thermal_zone->aux_trips);
 	kfree(int34x_thermal_zone);
 }
 EXPORT_SYMBOL_GPL(int340x_thermal_zone_remove);

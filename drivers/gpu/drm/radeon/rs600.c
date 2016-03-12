@@ -694,6 +694,10 @@ int rs600_irq_set(struct radeon_device *rdev)
 	WREG32(R_007D18_DC_HOT_PLUG_DETECT2_INT_CONTROL, hpd2);
 	if (ASIC_IS_DCE2(rdev))
 		WREG32(R_007408_HDMI0_AUDIO_PACKET_CONTROL, hdmi0);
+
+	/* posting read */
+	RREG32(R_000040_GEN_INT_CNTL);
+
 	return 0;
 }
 
@@ -809,7 +813,7 @@ int rs600_irq_process(struct radeon_device *rdev)
 		status = rs600_irq_ack(rdev);
 	}
 	if (queue_hotplug)
-		schedule_work(&rdev->hotplug_work);
+		schedule_delayed_work(&rdev->hotplug_work, 0);
 	if (queue_hdmi)
 		schedule_work(&rdev->audio_work);
 	if (rdev->msi_enabled) {
